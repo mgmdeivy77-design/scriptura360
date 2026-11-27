@@ -1,0 +1,8 @@
+{
+  "name": "Scriptura — Estudios Exegéticos",
+  "description": "Aplicación PWA para generar estudios bíblicos profesionales y objetivos basados en exégesis histórico-gramatical, con análisis léxico original (NA28/BHS) y herramientas contextuales.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
