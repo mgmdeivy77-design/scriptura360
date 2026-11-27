@@ -22,6 +22,6 @@ La aplicación estará disponible en `http://localhost:3000`.
 
 1. Sube este repositorio completo a GitHub (asegúrate de **no** subir archivos `.env` locales; están excluidos en `.gitignore`).
 2. En [Vercel](https://vercel.com), haz clic en **Add New → Project** e importa tu repositorio de GitHub.
-3. Vercel detectará automáticamente la configuración de `vercel.json` (Framework: `Vite`, Build Command: `npm run build`, Output Directory: `dist`, y funciones serverless en `/api/index.ts` con `maxDuration: 60`).
+3. Vercel detectará automáticamente la configuración de `vercel.json` (Framework: `Vite`, Build Command: `npm run build`, Output Directory: `dist`, y funciones serverless en `/api/` con `maxDuration: 60`).
 4. En **Environment Variables**, añade `GEMINI_API_KEY` con tu clave de Gemini (y opcionalmente `GEMINI_MODEL`).
 5. Haz clic en **Deploy**.

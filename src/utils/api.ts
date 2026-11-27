@@ -20,13 +20,20 @@ export async function postApiJson<T>(
   }
 
   if (!response.ok) {
-    const serverMessage =
-      parsed && typeof parsed.error === 'string' && parsed.error.trim()
-        ? parsed.error
-        : response.status === 504
-          ? 'El servidor tardó demasiado en responder (tiempo de espera agotado). Intenta nuevamente.'
-          : `${fallbackError} (HTTP ${response.status})`;
-    throw new Error(serverMessage);
+    if (parsed && typeof parsed.error === 'string' && parsed.error.trim()) {
+      throw new Error(parsed.error);
+    }
+    if (response.status === 504) {
+      throw new Error(
+        'El servidor tardó demasiado en responder (tiempo de espera agotado). Intenta nuevamente.'
+      );
+    }
+    if (rawText.includes('FUNCTION_INVOCATION_FAILED')) {
+      throw new Error(
+        'Error interno en la función del servidor (Vercel). Verifica GEMINI_API_KEY y los logs de despliegue en Vercel.'
+      );
+    }
+    throw new Error(`${fallbackError} (HTTP ${response.status})`);
   }
 
   if (!parsed) {

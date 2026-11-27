@@ -1,12 +1,13 @@
-import 'dotenv/config';
 import express from 'express';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
 
-const MODEL_NAME = process.env.GEMINI_MODEL?.trim() || 'gemini-4-hydrogen';
+function getModelName(): string {
+  return process.env.GEMINI_MODEL?.trim() || 'gemini-4-hydrogen';
+}
 
 function getGeminiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY no está configurada en el servidor.');
   }
@@ -21,10 +22,15 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 function handleGeminiError(res: Response, err: unknown): void {
+  if (res.headersSent) {
+    return;
+  }
+
   const message =
     err instanceof Error ? err.message : 'Error inesperado al consultar el motor exegético.';
   const statusMatch = message.match(/\b(400|401|403|404|429|500|503)\b/);
   const statusCode = statusMatch ? Number(statusMatch[1]) : 500;
+  const modelName = getModelName();
 
   let userMessage = message;
   if (message.includes('GEMINI_API_KEY')) {
@@ -38,7 +44,7 @@ function handleGeminiError(res: Response, err: unknown): void {
     userMessage =
       'Error de autenticación con la API de Gemini. Verifica la variable GEMINI_API_KEY en la configuración del proyecto.';
   } else if (statusCode === 404 || message.includes('NOT_FOUND')) {
-    userMessage = `El modelo configurado (${MODEL_NAME}) no está disponible para esta clave API. Verifica el acceso al modelo o ajusta GEMINI_MODEL en las variables de entorno.`;
+    userMessage = `El modelo configurado (${modelName}) no está disponible para esta clave API. Verifica el acceso al modelo o ajusta GEMINI_MODEL en las variables de entorno.`;
   } else if (statusCode === 429 || message.includes('RESOURCE_EXHAUSTED')) {
     userMessage = 'Se alcanzó el límite temporal de solicitudes. Intenta nuevamente en unos momentos.';
   }
@@ -484,8 +490,9 @@ const CORE_FIDELITY_CONSTITUTION = `Principios irrenunciables de fidelidad bíbl
 4. SOLIDEZ MULTIDISCIPLINAR EN DEBATES: En cuestiones debatidas, respalda cada posición con argumentos reales (filológicos/textuales, históricos/arqueológicos, filosóficos/lógicos, científicos/naturales cuando el pasaje toque realidad física o histórica, y teológico-canónicos) y cierra siempre con la conclusión más plausible y más fiel al conjunto de la Escritura.`;
 
 async function auditStudyFidelity(ai: GoogleGenAI, study: Record<string, unknown>) {
+  const modelName = getModelName();
   const auditResponse = await ai.models.generateContent({
-    model: MODEL_NAME,
+    model: modelName,
     contents: `Audita con máximo rigor el siguiente estudio exegético generado sobre "${String(study.passage ?? '')}".
 
 Verifica punto por punto:
@@ -602,7 +609,19 @@ ${JSON.stringify(study)}`,
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '1mb' }));
+
+const jsonParser = express.json({ limit: '1mb' });
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+    next();
+    return;
+  }
+  if (req.readable === false) {
+    next();
+    return;
+  }
+  jsonParser(req, res, next);
+});
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
@@ -610,7 +629,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 app.post('/api/study/generate', async (req: Request, res: Response) => {
   try {
-    const { passage, applicationContext } = req.body as {
+    const { passage, applicationContext } = (req.body ?? {}) as {
       passage?: string;
       applicationContext?: string;
     };
@@ -629,8 +648,9 @@ app.post('/api/study/generate', async (req: Request, res: Response) => {
         : `Para los ejemplos prácticos de la sección V (Aplicaciones), redacta ejemplos concretos, verosímiles y observables aplicables a la vida cotidiana, comunitaria, educativa, eclesial y pastoral actual.`;
 
     const ai = getGeminiClient();
+    const modelName = getModelName();
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Elabora un estudio exegético y hermenéutico exhaustivo, objetivo y de rigor académico sobre el pasaje bíblico: "${trimmedPassage}".
 ${contextInstruction}
 
@@ -674,15 +694,16 @@ Requisitos metodológicos obligatorios:
 
 app.post('/api/analyze/term', async (req: Request, res: Response) => {
   try {
-    const { passage, term } = req.body as { passage?: string; term?: string };
+    const { passage, term } = (req.body ?? {}) as { passage?: string; term?: string };
     if (!passage?.trim() || !term?.trim()) {
       res.status(400).json({ error: 'Se requiere tanto el pasaje como el término o expresión a analizar.' });
       return;
     }
 
     const ai = getGeminiClient();
+    const modelName = getModelName();
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Realiza un análisis léxico-gramatical y sintáctico profundo del término o expresión "${term.trim()}" dentro del contexto específico de "${passage.trim()}".
 ${CORE_FIDELITY_CONSTITUTION}
 Proporciona: escritura original (griego politónico o hebreo/arameo con puntuación), transliteración académica, lema léxico, morfología exacta en ese versículo, traducción literal, rango semántico, comparación con la Septuaginta (LXX) o Texto Masorético (BHS) según corresponda, función sintáctica en la oración, relevancia exegética y referencias cruzadas bíblicas reales donde la Escritura aclare ese uso.`,
@@ -697,7 +718,7 @@ Proporciona: escritura original (griego politónico o hebreo/arameo con puntuaci
     const draftAnalysis = JSON.parse(rawText);
 
     const auditResponse = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Audita estrictamente este análisis léxico para "${term.trim()}" en "${passage.trim()}". Verifica que la forma griega/hebrea, lema, morfología y citas bíblicas cruzadas sean 100% reales y fieles al texto bíblico sin sesgos denominacionales ni alucinaciones. Si algo es inexacto, corrígelo en verifiedAnalysis.
 Análisis: ${JSON.stringify(draftAnalysis)}`,
       config: {
@@ -737,7 +758,7 @@ Análisis: ${JSON.stringify(draftAnalysis)}`,
 
 app.post('/api/analyze/context', async (req: Request, res: Response) => {
   try {
-    const { passage, focus } = req.body as { passage?: string; focus?: string };
+    const { passage, focus } = (req.body ?? {}) as { passage?: string; focus?: string };
     if (!passage?.trim()) {
       res.status(400).json({ error: 'Se requiere el pasaje bíblico para el análisis contextual.' });
       return;
@@ -748,8 +769,9 @@ app.post('/api/analyze/context', async (req: Request, res: Response) => {
       : 'Ofrece un panorama completo del trasfondo histórico, sociorreligioso, literario e intertextual del pasaje.';
 
     const ai = getGeminiClient();
+    const modelName = getModelName();
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Elabora un dosier de análisis contextual histórico-literario y hermenéutico para el pasaje "${passage.trim()}".
 ${focusText}
 ${CORE_FIDELITY_CONSTITUTION}
@@ -765,7 +787,7 @@ Incluye: marco histórico-político verificable, dinámicas sociales/jurídicas/
     const draftContext = JSON.parse(rawText);
 
     const auditResponse = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Audita este dosier contextual para "${passage.trim()}". Comprueba que ningún dato histórico, referencia intertextual ni cita bíblica sea inventada o tendenciosa, y corrige en verifiedContext cualquier detalle impreciso.
 Dosier: ${JSON.stringify(draftContext)}`,
       config: {
@@ -805,7 +827,7 @@ Dosier: ${JSON.stringify(draftContext)}`,
 
 app.post('/api/study/learning', async (req: Request, res: Response) => {
   try {
-    const { passage, keyPrinciple, termsSummary } = req.body as {
+    const { passage, keyPrinciple, termsSummary } = (req.body ?? {}) as {
       passage?: string;
       keyPrinciple?: string;
       termsSummary?: string;
@@ -817,8 +839,9 @@ app.post('/api/study/learning', async (req: Request, res: Response) => {
     }
 
     const ai = getGeminiClient();
+    const modelName = getModelName();
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Genera un conjunto didáctico de estudio activo sobre "${passage.trim()}" fiel a la exégesis histórico-gramatical y basado exclusivamente en el texto bíblico.
 ${keyPrinciple ? `Principio clave del estudio: "${keyPrinciple}".` : ''}
 ${termsSummary ? `Términos analizados en el estudio: ${termsSummary}.` : ''}
@@ -843,7 +866,7 @@ Cada pregunta debe incluir una explicación académica clara basada en la Escrit
     const draftLearning = JSON.parse(rawText);
 
     const auditResponse = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: `Audita estas tarjetas y preguntas sobre "${passage.trim()}". Verifica que cada respuesta marcada como correcta (correctIndex), cada afirmación de Verdadero/Falso y cada término original sean 100% exactos según el texto bíblico, sin ambigüedades ni sesgos denominacionales. Corrige cualquier imprecisión en verifiedLearningKit.
 Material: ${JSON.stringify(draftLearning)}`,
       config: {
@@ -895,4 +918,16 @@ app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Ruta de API no encontrada.' });
 });
 
-export default app;
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  handleGeminiError(res, err);
+});
+
+export { app };
+
+export default function handler(req: Request, res: Response): Promise<void> {
+  return new Promise<void>((resolve) => {
+    res.once('finish', () => resolve());
+    res.once('close', () => resolve());
+    app(req, res);
+  });
+}
