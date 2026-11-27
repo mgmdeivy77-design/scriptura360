@@ -924,10 +924,4 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 export { app };
 
-export default function handler(req: Request, res: Response): Promise<void> {
-  return new Promise<void>((resolve) => {
-    res.once('finish', () => resolve());
-    res.once('close', () => resolve());
-    app(req, res);
-  });
-}
+export default app;
